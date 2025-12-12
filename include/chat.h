@@ -4,27 +4,55 @@
 #define MAX_PARTICIPANTS 10
 #define CHAT_SIZE sizeof(Chat)
 #define MSG_TEXT_SIZE 256
-// #define MAX_MSGS 10
+#define INVALID_CHAT_ID -1
+#define MAX_MSGS 10
 #define MANAGE_SIZE sizeof(Manager)
-#define SHM_SIZE MAX_CHATS * CHAT_SIZE + MANAGE_SIZE
+
+#define SEM_MANAGER "manager_sem"
+#define SEM_CHAT "chat_sem"
+#define SEM_EMPTY "empty_sem"
+#define SEM_FULL "full_sem"
+// #define SEM_MUTEX "mutex_sem"
+
+#define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
 
 #include <stdbool.h>
 #include <semaphore.h>
+#include <pthread.h>
 
 typedef struct {
 	int msg_id;
 	int chat_id;
+	int sender_pid;
 	int seen_num;
 	char text[MSG_TEXT_SIZE];
 } Message;
+typedef struct {
+	char msg_buf[MSG_TEXT_SIZE];
+	int latest_msg_id;
+	int pid;
+
+	pthread_t writer;
+	pthread_t reader;
+} Participant;
+
+typedef struct {
+
+} MailBox;
 
 typedef struct {
 	int chat_id;
 	int participant_num;
-	int write_index;
-	int participant_pids[MAX_PARTICIPANTS];
-	Message messages[2][2];
+	Participant participants[MAX_PARTICIPANTS];
+	bool must_be_destroyed;
+	int max_msg_unread;	// greatest id inside the chat's "mailbox", so reader threads don't keep scanning the entire array but this value if they've read the latest "news"
+	Message mailbox[MAX_MSGS];
+	int messages_sent;
 	sem_t chat_lock;
+
+	// sems for the bounded buffer
+	sem_t empty;
+	sem_t full;
 } Chat;
 
 typedef struct {
@@ -35,5 +63,15 @@ typedef struct {
 	sem_t manage_lock;
 } Manager;
 
+typedef struct {
+	Chat* chat;
+	Participant* participant;
+} chat_participant_pair;
 
-Manager* manager_init(sem_t manage_lock);
+Manager manager_init();
+
+Chat* chat_init(Manager* manager, int starter_pid, int chat_id);
+
+Chat* find_chat(Manager* manager, int chat_id);
+
+void enter_chat(Chat* chat, int pid);
