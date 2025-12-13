@@ -11,7 +11,6 @@ Manager manager_init() {
 	Manager manager;
 	manager.chats_active = 0;
 	manager.chat_inited = false;
-
 	sem_t* manage_lock = sem_open(SEM_MANAGER, O_CREAT | O_EXCL, SEM_PERMS, 1);
 	if(manage_lock == SEM_FAILED) {
 		perror("sem open FAILED in manager creation!\n");
@@ -34,7 +33,7 @@ int first_available_chat_slot(Chat* chats) {
 	return -1;
 }
 
-Chat* chat_init(Manager* manager, int starter_pid, int chat_id) {
+Chat* chat_init(Manager* manager, int chat_id) {
 	Chat chat;
 	CALL_SEM(sem_wait(&(manager -> manage_lock)), NULL);
 
@@ -49,7 +48,6 @@ Chat* chat_init(Manager* manager, int starter_pid, int chat_id) {
 	chat_lock = sem_open(SEM_CHAT, O_CREAT | O_EXCL, SEM_PERMS, 1);
 	empty_sem = sem_open(SEM_EMPTY, O_CREAT | O_EXCL, SEM_PERMS, MAX_MSGS);
 	full_sem = sem_open(SEM_FULL, O_CREAT | O_EXCL, SEM_PERMS, 0);
-	// mutex = sem_open(SEM_MUTEX, O_CREAT | O_EXCL, SEM_PERMS, 1);
 
 	if(chat_lock == SEM_FAILED || empty_sem == SEM_FAILED || full_sem == SEM_FAILED) {
 		perror("SEM opened FAILED in chat creation\n");
@@ -65,12 +63,13 @@ Chat* chat_init(Manager* manager, int starter_pid, int chat_id) {
 	chat.must_be_destroyed = false;
 	chat.full = *full_sem;
 	chat.messages_sent = 0;
+	chat.curr_read_pos = 0;
 
 	for(int i = 0; i < MAX_MSGS; ++i) {
 		((chat.mailbox)[i]).msg_id = -1;
 	}
 
-	for(int i = 1; i < MAX_PARTICIPANTS; ++i) {
+	for(int i = 0; i < MAX_PARTICIPANTS; ++i) {
 		(chat.participants[i]).pid = -1;
 	}
 
@@ -78,24 +77,22 @@ Chat* chat_init(Manager* manager, int starter_pid, int chat_id) {
 	++(manager -> chats_active);
 
 	int first_idx = first_available_chat_slot(manager -> chats);
-	// int first_idx = (manager -> chats_active++);
-	// printf("INDX IS %d\n", first_idx);
-	(manager -> chats)[first_idx] = chat;
 
 	Chat* chat_ptr = first_idx < 0 ? NULL : &((manager -> chats )[first_idx]);
+	*chat_ptr = chat;
 	CALL_SEM(sem_post(&(manager -> manage_lock)), NULL);
-
-	enter_chat(chat_ptr, starter_pid);
-	// printf("ptr is %p\n", chat_ptr);
 	return chat_ptr;
 }
 
 Chat* find_chat(Manager* manager, int chat_id) {
+	int x;
+	sem_getvalue(&(manager -> manage_lock), &x);
+	printf("sem is %d\n", x);
 	CALL_SEM(sem_wait(&(manager -> manage_lock)), NULL);
+	for(int i = 0; i < MAX_CHATS; i++) {
 
-	for(int i = 0; i < MAX_CHATS; ++i) {
-
-		Chat curr = manager -> chats[i];
+		Chat curr = (manager -> chats)[i];
+		printf("Chat #%d\n", curr.chat_id);
 
 		if( curr.chat_id == chat_id) {
 	
@@ -108,99 +105,86 @@ Chat* find_chat(Manager* manager, int chat_id) {
 	return NULL;	
 }
 
-void* chat_read(chat_participant_pair* pair) {
+void * chat_write(chat_participant_pair* pair) {
+    // 1. POINTERS
+    Chat *chat = pair->chat;
+    Participant *me = pair->participant;
+    char input_buffer[MSG_TEXT_SIZE];
+
     while(1) {
-        // 1. Wait for data
-        CALL_SEM(sem_wait(&(pair -> chat -> full)), NULL)
-        CALL_SEM(sem_wait(&(pair -> chat -> chat_lock)), NULL)
+        printf("Write: ");
+        if (fgets(input_buffer, MSG_TEXT_SIZE, stdin) == NULL) continue;
+        input_buffer[strcspn(input_buffer, "\n")] = 0;
 
-        Participant *me = pair -> participant; // Use POINTER to keep state updated
-        int min_message_idx = -1;
-        int lowest_found_id = -1;
+        // 2. Wait & Lock
+        CALL_SEM(sem_wait(&chat->empty), NULL);
+        CALL_SEM(sem_wait(&chat->chat_lock), NULL);
 
-        // 2. Search Buffer
-        for(int i = 0; i < MAX_MSGS; ++i) {
-            Message *msg = &((pair -> chat -> mailbox)[i]);
+        // 3. Write
+        int idx = chat->messages_sent % MAX_MSGS;
+        Message *msg = &chat->mailbox[idx];
+        msg->msg_id = ++chat->messages_sent;
+        msg->sender_pid = me->pid;
+        msg->seen_num = 0;
+        strncpy(msg->text, input_buffer, MSG_TEXT_SIZE);
+
+        // 4. THE FIX: Loop to MAX_PARTICIPANTS, not participant_num
+        for(int i = 0; i < MAX_PARTICIPANTS; i++) {
+            Participant *p = &chat->participants[i];
             
-            // Check if valid AND if it is a NEW message (ID > my last seen)
-            if(msg->msg_id != -1 && 
-               msg->sender_pid != me->pid && 
-               msg->msg_id > me->latest_msg_id) { // <--- Ensure latest_msg_id starts at -1
-
-                if (min_message_idx == -1 || msg->msg_id < lowest_found_id) {
-                    min_message_idx = i;
-                    lowest_found_id = msg->msg_id;
-                }
+            // Signal every VALID PID that is not ME
+            if (p->pid != 0 && p->pid != me->pid) {
+                sem_post(&p->wake_up);
             }
         }
 
-        // 3. Handle "Nothing Found"
-        if(min_message_idx == -1) {
-            CALL_SEM(sem_post(&(pair -> chat -> chat_lock)), NULL)
-            
-            // IMPORTANT: Put the 'full' token back!
-            CALL_SEM(sem_post(&(pair -> chat -> full)), NULL)
-            
-            sleep(1); // Wait a bit before checking again
-            continue;
-        }
-
-        // 4. Handle "Message Found"
-        Message *target = &(pair->chat->mailbox[min_message_idx]);
-        printf("%d has changed diplomatic relations with us: %s\n", target->sender_pid, target->text);
-		if(strcmp(target -> text, "TERMINATE") == 0) {
-			pair ->chat -> must_be_destroyed = true;
-			CALL_SEM(sem_post(&(pair -> chat -> chat_lock)), NULL)
-            CALL_SEM(sem_post(&(pair -> chat -> empty)), NULL) // Post EMPTY (slot freed)
-			return NULL;
-		}
-        
-        me->latest_msg_id = target->msg_id; // Remember we read this
-        target->seen_num++;
-
-        // 5. Delete or Keep
-        if(target->seen_num >= pair -> chat -> participant_num) {
-            target->msg_id = -1; // Delete
-            CALL_SEM(sem_post(&(pair -> chat -> chat_lock)), NULL)
-            CALL_SEM(sem_post(&(pair -> chat -> empty)), NULL) // Post EMPTY (slot freed)
-        }
+        CALL_SEM(sem_post(&chat->chat_lock), NULL);
     }
     return NULL;
 }
 
-void* chat_write(chat_participant_pair* pair) {
-    Participant participant = *(pair -> participant);
-    // LOOP STARTS HERE
+void * chat_read(chat_participant_pair* pair) {
+    Chat *chat = pair->chat;
+    Participant *me = pair->participant; 
+
+    // Initialize local history to current state so we don't read garbage
+    me->latest_msg_id = chat->messages_sent;
+
     while(1) {
-		printf("Write your message...\n");
+        // 1. SLEEP on PRIVATE semaphore
+        CALL_SEM(sem_wait(&me->wake_up), NULL);
+
+        CALL_SEM(sem_wait(&chat->chat_lock), NULL);
+
+        // 2. Catch Up Loop
+        int global_max = chat->messages_sent;
         
-        // 1. Get input (Wait for user)
-        if (fgets(participant.msg_buf, MSG_TEXT_SIZE, stdin) == NULL) break; 
-		
-        // 2. Wait for space in buffer
-        CALL_SEM(sem_wait(&(pair -> chat -> empty)), NULL)
-        CALL_SEM(sem_wait(&(pair -> chat -> chat_lock)), NULL)
-		
-		if(pair -> chat -> must_be_destroyed) {
-			CALL_SEM(sem_post(&(pair -> chat -> chat_lock)), NULL)			
-			return NULL;
-		}
-        // 3. Find slot and write
-        for(int i = 0; i < MAX_MSGS; ++i) {
-            Message *message = &(pair -> chat -> mailbox)[i];
-            if(message -> msg_id == -1) {
-                // ... (assignment logic is fine) ...
-				message -> msg_id = (pair -> chat -> messages_sent)++;
-				message -> seen_num = 1;
-				message ->sender_pid = pair -> participant->pid;
-                strcpy(message ->text, participant.msg_buf);
-                break; // Break the FOR loop, not the while
+        for (int id = me->latest_msg_id + 1; id <= global_max; id++) {
+            int idx = (id - 1) % MAX_MSGS;
+            Message *msg = &chat->mailbox[idx];
+
+            // 3. Prevent Self-Echo (Do not print if I sent it)
+            if (msg->sender_pid != me->pid) {
+                printf("\n[PID %d] reads: %s\n", me->pid, msg->text);
+                printf("Write: "); 
+                fflush(stdout);
+            }
+
+            // 4. Garbage Collection
+            msg->seen_num++;
+            
+            // Active readers = Total - 1 (The sender)
+            // Ensure we don't divide by zero if alone
+            int active_readers = (chat->participant_num > 1) ? (chat->participant_num - 1) : 1;
+            
+            if (msg->seen_num >= active_readers) {
+                CALL_SEM(sem_post(&chat->empty), NULL);
             }
         }
 
-        // 4. Release locks
-        CALL_SEM(sem_post(&(pair -> chat -> chat_lock)), NULL)      
-        CALL_SEM(sem_post(&(pair -> chat -> full)), NULL)
+        me->latest_msg_id = global_max;
+
+        CALL_SEM(sem_post(&chat->chat_lock), NULL);
     }
     return NULL;
 }
@@ -216,7 +200,6 @@ void enter_chat(Chat* chat, int pid) {
 
 	int i = -1;
 	for(i = 0; i < MAX_PARTICIPANTS; i++) {
-		// printf("i is %d\n", i);
 		if((chat -> participants[i]).pid == -1) break;
 	}
 	
@@ -226,15 +209,35 @@ void enter_chat(Chat* chat, int pid) {
 		return;
 	}
 
-	Participant* participant = &(chat -> participants[i]);
-	participant -> latest_msg_id = -1;
+	int participant_index = i;
+
+	Participant* participant = &(chat -> participants[participant_index]);
+	// participant -> latest_msg_id = -1;
 	participant -> pid = pid;
+
+	char sem_name[128];
+	sprintf(sem_name, "%s_%d_%d", SEM_WAKE, chat -> chat_id, participant -> pid);
+
+	sem_t* wake_up = sem_open(sem_name, O_CREAT | O_EXCL, SEM_PERMS, 0);
+	if(wake_up == SEM_FAILED) {
+		perror("FAILED SEM WAKE UP OPEN!\n");
+		return;
+	}
+	participant -> wake_up = *wake_up;
 	pthread_t* reader = &(participant -> reader);
 	pthread_t* writer = &(participant -> writer);
 
 	chat_participant_pair pair;
 	pair.chat = chat;
 	pair.participant = participant;
+
+	printf("Chat %d entered with you (%d)", chat -> chat_id, chat -> participants[participant_index].pid);
+
+	for(int i = 0; i < MAX_PARTICIPANTS; ++i) {
+		if((chat -> participants)[i].pid == -1 || i == participant_index) continue;
+		printf(", %d", (chat -> participants)[i].pid);
+	}
+	printf(" as participant(s)\n");
 
 	CALL_VOID_SEM(sem_post(&(chat -> chat_lock)));
 	pthread_create(writer, NULL, (void * (*)(void*)) chat_write, &pair);
@@ -243,9 +246,35 @@ void enter_chat(Chat* chat, int pid) {
 	}
 
 	pthread_join(*reader, NULL);
+	TEST
 	pthread_join(*writer, NULL);
+	TEST
 }
 
-// void clean_everything(Manager* manager, int shmid) {
+bool clean_chat(Manager* manager, Chat* chat) {
+	CALL_SEM(sem_wait(&(manager -> manage_lock)), false);
+	CALL_SEM(sem_wait(&(chat -> chat_lock)), false);
 
-// }
+	chat -> chat_id = -1;
+	for(int i = 0; i < chat -> participant_num; i++) {
+		Participant* participant = &(chat -> participants)[i];
+		participant->pid = -1;
+		
+		// pthread_t* writer = participant->writer;
+		// pthread_t* reader = participant -> reader;
+	}
+
+	int return_val = --(manager -> chats_active) == 0 ? true : false;
+	
+	CALL_SEM(sem_post(&(manager -> manage_lock)), false);
+	CALL_SEM(sem_post(&(chat -> chat_lock)), false);
+	CALL_SEM(sem_close(&(chat -> chat_lock)), false);
+	CALL_SEM(sem_close(&(chat -> full)), false);
+	CALL_SEM(sem_close(&(chat -> empty)), false);
+	CALL_SEM(sem_unlink(SEM_CHAT), false);
+	CALL_SEM(sem_unlink(SEM_FULL), false);
+	CALL_SEM(sem_unlink(SEM_EMPTY), false);
+
+
+	return return_val;
+}

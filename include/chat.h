@@ -12,7 +12,7 @@
 #define SEM_CHAT "chat_sem"
 #define SEM_EMPTY "empty_sem"
 #define SEM_FULL "full_sem"
-// #define SEM_MUTEX "mutex_sem"
+#define SEM_WAKE "wake_sem"
 
 #define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
 
@@ -34,11 +34,8 @@ typedef struct {
 
 	pthread_t writer;
 	pthread_t reader;
+	sem_t wake_up;
 } Participant;
-
-typedef struct {
-
-} MailBox;
 
 typedef struct {
 	int chat_id;
@@ -49,6 +46,7 @@ typedef struct {
 	Message mailbox[MAX_MSGS];
 	int messages_sent;
 	sem_t chat_lock;
+	int curr_read_pos;
 
 	// sems for the bounded buffer
 	sem_t empty;
@@ -70,8 +68,11 @@ typedef struct {
 
 Manager manager_init();
 
-Chat* chat_init(Manager* manager, int starter_pid, int chat_id);
+Chat* chat_init(Manager* manager, int chat_id);
 
 Chat* find_chat(Manager* manager, int chat_id);
 
 void enter_chat(Chat* chat, int pid);
+
+// @return true if last chat (and therefore shm must be removed), false otherwise
+bool clean_chat(Manager* manager, Chat* chat);
