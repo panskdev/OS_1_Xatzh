@@ -11,7 +11,7 @@
 #define SEM_MANAGER "manager_sem"
 #define SEM_CHAT "chat_sem"
 #define SEM_EMPTY "empty_sem"
-#define SEM_FULL "full_sem"
+// #define SEM_FULL "full_sem"
 #define SEM_WAKE "wake_sem"
 
 #define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
@@ -42,7 +42,6 @@ typedef struct {
 	int participant_num;
 	Participant participants[MAX_PARTICIPANTS];
 	bool must_be_destroyed;
-	int max_msg_unread;	// greatest id inside the chat's "mailbox", so reader threads don't keep scanning the entire array but this value if they've read the latest "news"
 	Message mailbox[MAX_MSGS];
 	int messages_sent;
 	sem_t chat_lock;
@@ -50,12 +49,12 @@ typedef struct {
 
 	// sems for the bounded buffer
 	sem_t empty;
-	sem_t full;
+	// sem_t full;
 } Chat;
 
 typedef struct {
 	int chats_active;
-	bool chat_inited;	// to destroy manager only and only if at least one chat ever started
+	// bool chat_inited;	// to destroy manager only and only if at least one chat ever started
 	Chat chats[MAX_CHATS];
 	
 	sem_t manage_lock;

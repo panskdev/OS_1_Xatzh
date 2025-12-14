@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
 	
 	if(sem_unlink(SEM_CHAT));
 	if(sem_unlink(SEM_EMPTY));
-	if(sem_unlink(SEM_FULL));
+	// if(sem_unlink(SEM_FULL));
 	if(sem_unlink(SEM_MANAGER));
 	if(sem_unlink(SEM_WAKE));
 	
