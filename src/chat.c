@@ -47,11 +47,10 @@ Chat* chat_init(Manager* manager, int chat_id) {
 	}
 
 	sem_init(&(chat.chat_lock), 1, 1);
-	sem_init(&(chat.empty), 1, MAX_MSGS);
+	sem_init(&(chat.empty), 1, 1);
 
 	chat.participant_num = 0;
 	chat.chat_id = chat_id;
-	chat.must_terminate = false;
 	chat.messages_sent = 0;
 
 	for(int i = 0; i < MAX_MSGS; ++i) {
@@ -135,39 +134,33 @@ void *chat_read(chat_participant_pair* pair) {
 	Chat* chat = pair -> chat;
 	Participant* participant = pair -> participant;
 
-	participant -> latest_msg_id = chat -> messages_sent;	// making sure we are reading the latest news
+	participant -> latest_msg_id = chat -> messages_sent;
 	while(1) {
 		CALL_SEM(sem_wait(&(participant -> wake_up)), NULL)	// wait till participant is woken up by a writer
 		CALL_SEM(sem_wait(&(chat -> chat_lock)), NULL)
 
-		Message* message;
-		for(int i = participant -> latest_msg_id +1; i <= chat -> messages_sent; i++) {
-			int index = (i - 1) % MAX_MSGS;
+		int index = (chat -> messages_sent - 1) % MAX_MSGS;
+		Message* message = &((chat -> mailbox)[index]);
+		if(!strcmp(message -> text, "TERMINATE")) {
+			pthread_cancel(pair -> participant -> writer);
+			CALL_SEM(sem_post(&(chat -> chat_lock)), NULL);
+			return NULL;
+		}
+		if(message -> sender_pid != participant -> pid) {
+			printf("\n(%d) says \"%s\"\n", message -> sender_pid, message -> text);
+			printf("Write a message: ");
+			fflush(stdout);
+		}
+		++(message -> seen_num);
+		
+		// (Potential) Active readers = minimum = 1 (curr participant) or everyone except the sender 
+		int active_readers = chat -> participant_num > 1 ? chat -> participant_num -1 : 1;
 
-			message = &((chat -> mailbox)[index]);
-			if(!strcmp(message -> text, "TERMINATE")) {
-				pthread_cancel(pair -> participant -> writer);
-				CALL_SEM(sem_post(&(chat -> chat_lock)), NULL);
-				return NULL;
-			}
-
-			if(message -> sender_pid != participant -> pid) {
-				printf("\n(%d) says \"%s\"\n", message -> sender_pid, message -> text);
-				printf("Write a message: ");
-				fflush(stdout);
-			}
-
-			++(message -> seen_num);
-
-			// Active readers = minimum = 1 (curr participant) or everyone except the sender 
-			int active_readers = chat -> participant_num > 1 ? chat -> participant_num -1 : 1;
-
-			if(message -> seen_num >= active_readers) {
-				CALL_SEM(sem_post(&(chat -> empty)), NULL)
-			}
+		if(message -> seen_num >= active_readers) {
+			CALL_SEM(sem_post(&(chat -> empty)), NULL)
 		}
 
-		participant -> latest_msg_id = chat -> messages_sent;
+		participant -> latest_msg_id = chat -> messages_sent;	// making sure we are reading the latest news
 		CALL_SEM(sem_post(&(chat -> chat_lock)), NULL)
 	}
 
@@ -215,7 +208,7 @@ void enter_chat(Chat* chat, int pid) {
 	pthread_join(*reader, NULL);
 }
 
-bool clean_chat(Manager* manager, Chat* chat) {
+bool clean_chat(Manager* manager, Chat* chat, int leaving_pid) {
 	CALL_SEM(sem_wait(&(manager -> manage_lock)), false);
 	CALL_SEM(sem_wait(&(chat -> chat_lock)), false);
 
@@ -223,6 +216,11 @@ bool clean_chat(Manager* manager, Chat* chat) {
 	int last_chat = false;
 
 	int old_id = chat -> chat_id;
+	for(int i = 0; i < chat -> participant_num; i++) {
+		if(leaving_pid == (chat -> participants)[i].pid) {
+			CALL_SEM(sem_destroy(&((chat -> participants)[i].wake_up)), false);
+			}
+		}
 	if( --(chat -> participant_num) == 0) {
 		printf("I'm the last one to go... I have to clean up\n");
 
@@ -238,9 +236,6 @@ bool clean_chat(Manager* manager, Chat* chat) {
 		CALL_SEM(sem_destroy(&(chat -> chat_lock)), false);
 		CALL_SEM(sem_destroy(&(chat -> empty)), false);
 		for(int i = 0; i < chat -> participant_num; i++) {
-			if((chat -> participants)[i].pid == -1) {
-				CALL_SEM(sem_destroy(&((chat -> participants)[i].wake_up)), false)
-			}
 			(chat -> participants)[i].pid = -1;
 		}
 	
