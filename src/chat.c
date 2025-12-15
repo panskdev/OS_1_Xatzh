@@ -10,14 +10,15 @@
 Manager manager_init() {
 	Manager manager;
 	manager.chats_active = 0;
-	// manager.chat_inited = false;
-	sem_t* manage_lock = sem_open(SEM_MANAGER, O_CREAT | O_EXCL, SEM_PERMS, 1);
-	if(manage_lock == SEM_FAILED) {
+
+	sem_init(&(manager.manage_lock), 1, 1);
+
+	if(&(manager.manage_lock) == SEM_FAILED) {
 		perror("sem open FAILED in manager creation!\n");
 		exit(1);
 	}
+
 	for(int i = 0; i < MAX_CHATS; ++i) ((manager.chats)[i]).chat_id = -1;
-	manager.manage_lock = *manage_lock;
 	return manager;
 }
 
@@ -44,23 +45,13 @@ Chat* chat_init(Manager* manager, int chat_id) {
 		return NULL;
 	}
 
-	sem_t* chat_lock, *empty_sem, *full_sem;
-	chat_lock = sem_open(SEM_CHAT, O_CREAT | O_EXCL, SEM_PERMS, 1);
-	empty_sem = sem_open(SEM_EMPTY, O_CREAT | O_EXCL, SEM_PERMS, MAX_MSGS);
-	// full_sem = sem_open(SEM_FULL, O_CREAT | O_EXCL, SEM_PERMS, 0);
-
-	if(chat_lock == SEM_FAILED || empty_sem == SEM_FAILED || full_sem == SEM_FAILED) {
-		perror("SEM opened FAILED in chat creation\n");
-		CALL_SEM(sem_post(&(manager -> manage_lock)), NULL);
-		return NULL;
-	}
+	sem_init(&(chat.chat_lock), 1, 1);
+	sem_init(&(chat.empty), 1, MAX_MSGS);
 
 	chat.participant_num = 0;
 	// ((chat.participants)[0]).pid = starter_pid;
 	chat.chat_id = chat_id;
-	chat.chat_lock = *chat_lock;
-	chat.empty = *empty_sem;
-	chat.must_be_destroyed = false;
+	chat.must_terminate = false;
 	// chat.full = *full_sem;
 	chat.messages_sent = 0;
 	chat.curr_read_pos = 0;
@@ -128,11 +119,17 @@ void *chat_write(chat_participant_pair* pair) {
 
 		for(int i = 0; i < MAX_PARTICIPANTS; i++) {
 			Participant* other_participant = &((chat -> participants)[i]);
-
+			
 			// wake up every participant that is Active/Valid AND is NOT the same as the one writing right now
 			if(other_participant -> pid != -1 && other_participant -> pid != participant -> pid) {
 				CALL_SEM(sem_post(&(other_participant -> wake_up)), NULL)
 			}
+		}
+		if(!strcmp("TERMINATE", message -> text)) {
+			chat -> must_terminate = true;
+			CALL_SEM(sem_post(&(chat -> chat_lock)), NULL);
+			pthread_cancel(participant -> reader);
+			return NULL;
 		}
 
 		CALL_SEM(sem_post(&(chat -> chat_lock)), NULL)
@@ -155,6 +152,15 @@ void *chat_read(chat_participant_pair* pair) {
 			int index = (i - 1) % MAX_MSGS;
 
 			message = &((chat -> mailbox)[index]);
+			if(!strcmp(message -> text, "TERMINATE")) {
+				pthread_cancel(pair -> participant -> writer);
+				CALL_SEM(sem_destroy(&(participant -> wake_up)), NULL);
+				chat -> must_terminate = true;
+				CALL_SEM(sem_post(&(chat -> chat_lock)), NULL);
+				CALL_SEM(sem_post(&(chat -> empty)), NULL)
+				return NULL;
+			}
+
 			if(message -> sender_pid != participant -> pid) {
 				printf("\n(%d) says \"%s\"\n", message -> sender_pid, message -> text);
 				printf("Write a message: ");
@@ -204,15 +210,13 @@ void enter_chat(Chat* chat, int pid) {
 	// participant -> latest_msg_id = -1;
 	participant -> pid = pid;
 
-	char sem_name[128];
-	sprintf(sem_name, "%s_%d_%d", SEM_WAKE, chat -> chat_id, participant -> pid);
+	sprintf(participant -> wake_up_name, "%s_%d_%d", SEM_WAKE, chat -> chat_id, participant -> pid);
 
-	sem_t* wake_up = sem_open(sem_name, O_CREAT | O_EXCL, SEM_PERMS, 0);
-	if(wake_up == SEM_FAILED) {
-		perror("FAILED SEM WAKE UP OPEN!\n");
-		return;
-	}
-	participant -> wake_up = *wake_up;
+	// // sem_t* wake_up = sem_open(participant -> wake_up_name, O_CREAT | O_EXCL, SEM_PERMS, 0);
+	// sem_t* wake_up;
+	// CALL_VOID_SEM(sem_init(wake_up, 0, 0));
+	// participant -> wake_up = *wake_up;
+	CALL_VOID_SEM(sem_init(&(participant -> wake_up), 1, 0));
 	pthread_t* reader = &(participant -> reader);
 	pthread_t* writer = &(participant -> writer);
 
@@ -235,35 +239,38 @@ void enter_chat(Chat* chat, int pid) {
 	}
 
 	pthread_join(*reader, NULL);
-	TEST
-	pthread_join(*writer, NULL);
-	TEST
 }
 
 bool clean_chat(Manager* manager, Chat* chat) {
 	CALL_SEM(sem_wait(&(manager -> manage_lock)), false);
 	CALL_SEM(sem_wait(&(chat -> chat_lock)), false);
 
-	chat -> chat_id = -1;
-	for(int i = 0; i < chat -> participant_num; i++) {
-		Participant* participant = &(chat -> participants)[i];
-		participant->pid = -1;
-		
-		// pthread_t* writer = participant->writer;
-		// pthread_t* reader = participant -> reader;
-	}
+	int return_val = false;
+	if( --(chat -> participant_num) == 0) {
+		chat -> chat_id = -1;
 
-	int return_val = --(manager -> chats_active) == 0 ? true : false;
+		for(int i = 0; i < chat -> participant_num; i++) {
+			Participant* participant = &(chat -> participants)[i];
+			participant->pid = -1;
+		}
+
+		return_val = --(manager -> chats_active) == 0 ? true : false;
+
+		CALL_SEM(sem_destroy(&(chat -> chat_lock)), false);
+		CALL_SEM(sem_destroy(&(chat -> empty)), false);
+		for(int i = 0; i < MAX_PARTICIPANTS; i++) {
+			(chat -> participants)[i].pid = -1;
+		}
 	
-	CALL_SEM(sem_post(&(manager -> manage_lock)), false);
-	CALL_SEM(sem_post(&(chat -> chat_lock)), false);
-	CALL_SEM(sem_close(&(chat -> chat_lock)), false);
-	// CALL_SEM(sem_close(&(chat -> full)), false);
-	CALL_SEM(sem_close(&(chat -> empty)), false);
-	CALL_SEM(sem_unlink(SEM_CHAT), false);
-	// CALL_SEM(sem_unlink(SEM_FULL), false);
-	CALL_SEM(sem_unlink(SEM_EMPTY), false);
-
-
-	return return_val;
+		for(int i = 0; i < MAX_MSGS; i++) {
+			(chat -> mailbox)[i].msg_id = -1;
+		}
+		
+		chat -> chat_id = -1;
+	}
+	else {
+		CALL_SEM(sem_post(&(manager -> manage_lock)), false);
+		CALL_SEM(sem_post(&(chat -> chat_lock)), false);
+	}
+	return return_val;	
 }

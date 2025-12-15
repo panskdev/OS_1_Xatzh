@@ -87,8 +87,10 @@ int main(int argc, char** argv) {
 	if(last_chat) {
 		shmdt(shm_ptr);
 		shmctl(shm_id, IPC_RMID, NULL);
-		CALL_SEM(sem_close(&(manager -> manage_lock)), 1);
-		CALL_SEM(sem_unlink(SEM_MANAGER), 1);
+		// CALL_SEM(sem_close(&(manager -> manage_lock)), 1);
+		// CALL_SEM(sem_unlink(SEM_MANAGER), 1);
+
+		CALL_SEM(sem_destroy(&(manager -> manage_lock)), 1);
 	}
 
 	return 0;

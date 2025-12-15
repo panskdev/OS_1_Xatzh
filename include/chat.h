@@ -35,13 +35,14 @@ typedef struct {
 	pthread_t writer;
 	pthread_t reader;
 	sem_t wake_up;
+	char wake_up_name[32];
 } Participant;
 
 typedef struct {
 	int chat_id;
 	int participant_num;
 	Participant participants[MAX_PARTICIPANTS];
-	bool must_be_destroyed;
+	bool must_terminate;
 	Message mailbox[MAX_MSGS];
 	int messages_sent;
 	sem_t chat_lock;
