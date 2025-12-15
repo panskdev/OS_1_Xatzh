@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "debug.h"
 
 Manager manager_init() {
 	Manager manager;
@@ -99,8 +100,12 @@ void *chat_write(chat_participant_pair* pair) {
 		if(fgets(participant -> msg_buf, MSG_TEXT_SIZE, stdin) == NULL) continue;
 		participant -> msg_buf[strcspn(participant -> msg_buf, "\n")] = 0;	// strip newline
 
-		CALL_SEM(sem_wait(&(chat -> empty)), NULL)
 		CALL_SEM(sem_wait(&(chat -> chat_lock)), NULL)
+
+		if(chat -> participant_num > 1) {
+			CALL_SEM(sem_wait(&(chat -> empty)), NULL)	// making sure one other process exists to actually post the semaphore with reader thread ...
+		}
+
 
 		// find the next index to put the new msg (like round robin)
 		int index = chat -> messages_sent % MAX_MSGS;
@@ -118,9 +123,12 @@ void *chat_write(chat_participant_pair* pair) {
 				CALL_SEM(sem_post(&(other_participant -> wake_up)), NULL)
 			}
 		}
+
 		if(!strcmp("TERMINATE", message -> text)) {
+	
 			pthread_cancel(participant -> reader);
 			CALL_SEM(sem_post(&(chat -> chat_lock)), NULL);
+	
 			return NULL;
 		}
 
