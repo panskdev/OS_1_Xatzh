@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
 		enter_chat(chat, getpid());
 	}
 
-	bool last_chat = clean_chat(manager, chat);
+	bool last_chat = clean_chat(manager, chat, getpid());
 	if(last_chat) {
 		shmdt(shm_ptr);
 		shmctl(shm_id, IPC_RMID, NULL);

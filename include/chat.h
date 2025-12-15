@@ -32,7 +32,6 @@
 
 typedef struct {
 	int msg_id;
-	int chat_id;
 	int sender_pid;
 	int seen_num;
 	char text[MSG_TEXT_SIZE];
@@ -52,11 +51,9 @@ typedef struct {
 	int chat_id;
 	int participant_num;
 	Participant participants[MAX_PARTICIPANTS];
-	bool must_terminate;
 	Message mailbox[MAX_MSGS];
 	int messages_sent;
 	sem_t chat_lock;
-
 	sem_t empty;
 } Chat;
 
@@ -93,4 +90,4 @@ Chat* find_chat(Manager* manager, int chat_id);
 void enter_chat(Chat* chat, int pid);
 
 // @return true if last chat (and therefore shm must be removed), false otherwise
-bool clean_chat(Manager* manager, Chat* chat);
+bool clean_chat(Manager* manager, Chat* chat, int leaving_pid);
