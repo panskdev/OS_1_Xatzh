@@ -1,6 +1,6 @@
 #pragma once
 
-#define MAX_CHATS 10
+#define MAX_CHATS 3
 #define MAX_PARTICIPANTS 10
 #define CHAT_SIZE sizeof(Chat)
 #define MSG_TEXT_SIZE 256
@@ -8,17 +8,27 @@
 #define MAX_MSGS 10
 #define MANAGE_SIZE sizeof(Manager)
 
-#define SEM_MANAGER "manager_sem"
-#define SEM_CHAT "chat_sem"
-#define SEM_EMPTY "empty_sem"
-// #define SEM_FULL "full_sem"
-#define SEM_WAKE "wake_sem"
-
-#define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
-
 #include <stdbool.h>
 #include <semaphore.h>
+#include <errno.h>
+#include <string.h>
 #include <pthread.h>
+
+#define	CALL_VOID_SEM(call) {	\
+	int code = call;	\
+	if(code < 0) {	\
+		fprintf(stderr, "Something went wrong at %d in %s (%s) : %s\n", __LINE__, __func__, __FILE__, strerror(errno));	\
+		return;		\
+	}	\
+}
+
+#define	CALL_SEM(call, error) {	\
+	int code = call;	\
+	if(code < 0) {	\
+		fprintf(stderr, "Something went wrong at %d in %s (%s) : %s\n", __LINE__, __func__, __FILE__, strerror(errno));	\
+		return error;		\
+	}	\
+}
 
 typedef struct {
 	int msg_id;
@@ -27,6 +37,7 @@ typedef struct {
 	int seen_num;
 	char text[MSG_TEXT_SIZE];
 } Message;
+
 typedef struct {
 	char msg_buf[MSG_TEXT_SIZE];
 	int latest_msg_id;
@@ -35,7 +46,6 @@ typedef struct {
 	pthread_t writer;
 	pthread_t reader;
 	sem_t wake_up;
-	char wake_up_name[32];
 } Participant;
 
 typedef struct {
@@ -46,16 +56,12 @@ typedef struct {
 	Message mailbox[MAX_MSGS];
 	int messages_sent;
 	sem_t chat_lock;
-	int curr_read_pos;
 
-	// sems for the bounded buffer
 	sem_t empty;
-	// sem_t full;
 } Chat;
 
 typedef struct {
 	int chats_active;
-	// bool chat_inited;	// to destroy manager only and only if at least one chat ever started
 	Chat chats[MAX_CHATS];
 	
 	sem_t manage_lock;
@@ -66,12 +72,24 @@ typedef struct {
 	Participant* participant;
 } chat_participant_pair;
 
+// @return chat Manager struct
 Manager manager_init();
 
+// @brief Initializes chat with specified ID (also checks if available chat slots)
+// @param manager ptr to Manager struct
+// @param chat_id ID to initialize chat with
+// @return ptr to Chat struct created or NULL if chat creation failed
 Chat* chat_init(Manager* manager, int chat_id);
 
+// @brief Finds chat by specified ID and returns it if found
+// @param manager ptr to Manager struct
+// @param chat_id ID of the chat to be found
+// @return ptr to Chat struct if found or NULL otherwise
 Chat* find_chat(Manager* manager, int chat_id);
 
+// @brief Tries to insert a new participant process into given chat (does check if there are no free slots)
+// @param chat ptr to Chat to enter
+// @param pid Proccess ID of the process attempting to join chat
 void enter_chat(Chat* chat, int pid);
 
 // @return true if last chat (and therefore shm must be removed), false otherwise
