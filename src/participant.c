@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
 		*manager = manager_init();
 	}
 	
-	int chat_id = atoi(argv[1]);
+	int chat_id = abs(atoi(argv[1]));
 	printf("Seeing if chat #%d exists...\n", chat_id);
 
 	Chat* chat = find_chat(manager, chat_id);

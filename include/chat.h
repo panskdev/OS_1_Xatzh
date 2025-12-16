@@ -1,12 +1,10 @@
 #pragma once
 
-#define MAX_CHATS 3
+#define MAX_CHATS 10
 #define MAX_PARTICIPANTS 10
-#define CHAT_SIZE sizeof(Chat)
 #define MSG_TEXT_SIZE 256
-#define INVALID_CHAT_ID -1
 #define MAX_MSGS 10
-#define MANAGE_SIZE sizeof(Manager)
+#define USERNAME_SIZE 25
 
 #include <stdbool.h>
 #include <semaphore.h>
@@ -39,7 +37,7 @@ typedef struct {
 
 typedef struct {
 	char msg_buf[MSG_TEXT_SIZE];
-	int latest_msg_id;
+	char name[USERNAME_SIZE];
 	int pid;
 
 	pthread_t writer;

@@ -142,7 +142,6 @@ void *chat_read(chat_participant_pair* pair) {
 	Chat* chat = pair -> chat;
 	Participant* participant = pair -> participant;
 
-	participant -> latest_msg_id = chat -> messages_sent;
 	while(1) {
 		CALL_SEM(sem_wait(&(participant -> wake_up)), NULL)	// wait till participant is woken up by a writer
 		CALL_SEM(sem_wait(&(chat -> chat_lock)), NULL)
@@ -168,7 +167,7 @@ void *chat_read(chat_participant_pair* pair) {
 			CALL_SEM(sem_post(&(chat -> empty)), NULL)
 		}
 
-		participant -> latest_msg_id = chat -> messages_sent;	// making sure we are reading the latest news
+		// participant -> latest_msg_id = chat -> messages_sent;	// making sure we are reading the latest news
 		CALL_SEM(sem_post(&(chat -> chat_lock)), NULL)
 	}
 
@@ -187,7 +186,6 @@ void enter_chat(Chat* chat, int pid) {
 	int participant_index = (chat -> participant_num)++;
 
 	Participant* participant = &(chat -> participants[participant_index]);
-	// participant -> latest_msg_id = -1;
 	participant -> pid = pid;
 	CALL_VOID_SEM(sem_init(&(participant -> wake_up), 1, 0));
 	pthread_t* reader = &(participant -> reader);
