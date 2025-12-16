@@ -106,7 +106,6 @@ void *chat_write(chat_participant_pair* pair) {
 			CALL_SEM(sem_wait(&(chat -> empty)), NULL)	// making sure one other process exists to actually post the semaphore with reader thread ...
 		}
 
-
 		// find the next index to put the new msg (like round robin)
 		int index = chat -> messages_sent % MAX_MSGS;
 		Message *message = &((chat -> mailbox)[index]);
@@ -184,17 +183,19 @@ void enter_chat(Chat* chat, int pid) {
 		exit(1);
 	}
 
-	int participant_index = (chat -> participant_num)++;
-
+	
+	int participant_index = (chat -> participant_num);
 	Participant* participant = &(chat -> participants[participant_index]);
 	participant -> pid = pid;
 	while(1) {
 		printf("Enter your username (unique): ");
 		fflush(stdin);
 		
+		CALL_VOID_SEM(sem_post(&(chat -> chat_lock)));
 		if(fgets(participant -> name, USERNAME_SIZE, stdin) == NULL) {
 			continue;	
 		}
+		CALL_VOID_SEM(sem_wait(&(chat -> chat_lock)));
 
 		participant -> name[strcspn(participant -> name, "\n")] = 0;	// strip newline
 		if(strlen(participant -> name) == 0) {
@@ -203,13 +204,15 @@ void enter_chat(Chat* chat, int pid) {
 		
 		bool username_exists = false;
 		for(int i = 0; i < chat -> participant_num -1; i++) {
-			if(!strcmp((chat -> participants[i]).name, participant -> name)) {
+			if(!strcmp((chat -> participants[i]).name, participant -> name) && (chat -> participants[i]).pid != -1) {
 				username_exists = true;
 				break;
 			}
 		}
 		if(!username_exists) break;
 	}
+
+	++(chat -> participant_num);
 	CALL_VOID_SEM(sem_init(&(participant -> wake_up), 1, 0));
 	pthread_t* reader = &(participant -> reader);
 	pthread_t* writer = &(participant -> writer);
@@ -280,5 +283,5 @@ bool clean_chat(Manager* manager, Chat* chat, int leaving_pid) {
 	if(last_chat) {
 		printf("Chat #%d was the last one to go\n", old_id);
 	}
-	return last_chat;	
+	return last_chat;
 }
