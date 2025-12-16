@@ -43,7 +43,7 @@ typedef struct {
 
 	pthread_t writer;
 	pthread_t reader;
-	sem_t wake_up;
+	sem_t wake_up;	// rise and shine
 } Participant;
 
 typedef struct {

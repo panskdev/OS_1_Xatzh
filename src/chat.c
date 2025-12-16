@@ -204,7 +204,7 @@ void enter_chat(Chat* chat, int pid) {
 		
 		bool username_exists = false;
 		for(int i = 0; i < chat -> participant_num; i++) {
-			if(!strcmp((chat -> participants[i]).name, participant -> name) && (chat -> participants[i]).pid != -1) {
+			if(!strcmp((chat -> participants[i]).name, participant -> name) && (chat -> participants[i]).pid != -1 && (chat -> participants[i]).pid != getpid()) {
 				username_exists = true;
 				break;
 			}
