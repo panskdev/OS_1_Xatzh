@@ -31,6 +31,7 @@
 typedef struct {
 	int msg_id;
 	int sender_pid;
+	char sender_name[USERNAME_SIZE];
 	int seen_num;
 	char text[MSG_TEXT_SIZE];
 } Message;

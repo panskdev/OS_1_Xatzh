@@ -113,6 +113,7 @@ void *chat_write(chat_participant_pair* pair) {
 		message -> msg_id = ++(chat -> messages_sent);
 		message -> sender_pid = participant -> pid;
 		message -> seen_num = 0;
+		strncpy(message -> sender_name, participant -> name, USERNAME_SIZE);
 		strncpy(message -> text, participant -> msg_buf, MSG_TEXT_SIZE);
 
 		for(int i = 0; i < MAX_PARTICIPANTS; i++) {
@@ -154,7 +155,7 @@ void *chat_read(chat_participant_pair* pair) {
 			return NULL;
 		}
 		if(message -> sender_pid != participant -> pid) {
-			printf("\n(%d) says \"%s\"\n", message -> sender_pid, message -> text);
+			printf("\n(%s-%d): \"%s\"\n", message -> sender_name, message -> sender_pid, message -> text);
 			printf("Write a message: ");
 			fflush(stdout);
 		}
@@ -187,6 +188,28 @@ void enter_chat(Chat* chat, int pid) {
 
 	Participant* participant = &(chat -> participants[participant_index]);
 	participant -> pid = pid;
+	while(1) {
+		printf("Enter your username (unique): ");
+		fflush(stdin);
+		
+		if(fgets(participant -> name, USERNAME_SIZE, stdin) == NULL) {
+			continue;	
+		}
+
+		participant -> name[strcspn(participant -> name, "\n")] = 0;	// strip newline
+		if(strlen(participant -> name) == 0) {
+			continue;
+		} 
+		
+		bool username_exists = false;
+		for(int i = 0; i < chat -> participant_num -1; i++) {
+			if(!strcmp((chat -> participants[i]).name, participant -> name)) {
+				username_exists = true;
+				break;
+			}
+		}
+		if(!username_exists) break;
+	}
 	CALL_VOID_SEM(sem_init(&(participant -> wake_up), 1, 0));
 	pthread_t* reader = &(participant -> reader);
 	pthread_t* writer = &(participant -> writer);
@@ -195,11 +218,11 @@ void enter_chat(Chat* chat, int pid) {
 	pair.chat = chat;
 	pair.participant = participant;
 
-	printf("Chat %d entered with you (%d)", chat -> chat_id, chat -> participants[participant_index].pid);
+	printf("Chat %d entered with you (%s-%d)", chat -> chat_id, participant -> name, participant -> pid);
 
 	for(int i = 0; i < chat -> participant_num; ++i) {
 		if((chat -> participants)[i].pid == -1 || i == participant_index) continue;
-		printf(", %d", (chat -> participants)[i].pid);
+		printf(", %s-%d", (chat -> participants)[i].name, (chat -> participants)[i].pid);
 	}
 	printf(" as participant(s)\n");
 
