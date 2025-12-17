@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "debug.h"
 
 Manager manager_init() {
 	Manager manager;

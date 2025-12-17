@@ -4,5 +4,3 @@ compile:
 	gcc -o ./chat ./build/participant.o ./build/chat.o -I ../include/ -g -lpthread
 clean:
 	rm ./build/* chat || true && clear
-# participant_run: participant_compile
-# 	./build/chat
