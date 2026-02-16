@@ -1,57 +1,53 @@
-## ΕΡΓΑΣΙΑ 1 ΛΕΙΤΟΥΡΓΙΚΑ ΣΥΣΤΗΜΑΤΑ
+## Operating Systems (K22) Assignment 1
 
-### ΟΝΟΜΑΤΕΠΩΝΥΜΟ: ΠΑΝΑΓΙΩΤΗΣ ΣΚΑΡΠΑΘΑΚΗΣ
+## Usage Guide
 
-### ΑΜ: 1115202300187
+## Disclaimer: This software works only on linux environments.
 
-## Περιγραφή χρήσης
+To compile, use `make compile`.
+To clean working directory use `make clean` (will remove the executable, as well as any object files)
+Program execution is explained below:
 
-Για την μεταγλώττιση (με Makefile) αρκεί η εντολή "`make compile`" (Η εντολή "`make clean`"καθαρίζει το directory του προγραάμματος από αρχεία τύπου .o και εκτελέσιμα).
+To execute the program, after compiling, use: `./chat <chat_number>`, in the repo's root directory. "chat_number" specifies the chat ID the new incoming process will attempt to enter or create. In case it's the first process to run said program, it initializes the shared memory and the required semaphores appropriately.
 
-Για την έναρξη του προγράμματος, μετά την μεταγλώττιση (ως μια διεργασία) αρκεί η κλήση του εκτελέσιμου προγράμματος "`chat`", ακολουθούμενο με τον αριθμό ID του chat που θα προσπαθήσει να εισέλθει. 
-Αν δεν βρεθεί διάλογος με τον απαιτούμενο αριθμό ID, τότε προσπαθεί η διεργασία να δημιουργήσει νέα. Αν ο αριθμός των ενεργών διεργασιών είναι ίσος με τον μέγιστο αριθμό αυτών, τότε δεν μπορεί να δημιουργηθεί νέος διάλογος και η διεργασία τερματίζει
-Αν βρεθεί διάλογος με τον απαιτούμενο αριθμό ID, τότε ελέγχεται αν ο αριθμός των διεργασιών που συμμετέχουν στον διάλογο αυτόν ισούται με τον μέγιστο αριθμό αυτών. Στην περίπτωση αυτή, η διεργασία πάλι τερματίζει, καθώς δεν έχει ελεύθερο "slot" στον διάλογο για αυτήν.
-Στην εισαγωγή διεργασίας σε διάλογο ζητείται μοναδικό αναγνωριστικό όνομα (μοναδικό ανά διάλογο), ώστε να διευκολύνεται η αναγνώριση άλλων διεργασιών που συντάσσουν μηνύματα προς άλλες μετέχουσες διεργασίες.
+## How the software works under the hood
 
-## Περιγραφή δομών (structs)
+If the process attempts to join a chat that already exists, then it'll check if there's room for itself. If there's no available participant slot inside aforementioned chat, then the process terminates, displaying an appropriate error message on the terminal. If there is at least one more slot for the new participating process to join, it calls the function `enter_chat`, responsible of handling this action (explained later).
+If the process attempts to join a chat that never existed or no longer exists, it will attempt to create a new chat. If the maximum number of available slots for unique chat IDs has already been reached, then the process terminates and an appropriate error message is displayed on the terminal. If chat creation is successful, the new process adds itself as the sole participant thereof and the function responsible for handling joining processes inside a chat (`enter_chat`) is called.
 
-* `Chat`: Η δομή ενός διαλόγου, της οποίας τα πεδία είναι:
-	1. `chat_id`: Ο αριθμός ID του διαλόγου
-	2. `participant_num`: Ο αριθμός των διεργασιών που συμμετέχουν στον συγκεκριμένο διάλογο σε μια δεδομένη χρονική στιγμή
-	3. `participnts`: Πίνακας που αποθηκεύει δομές τύπου `Participant`. Θέσεις του πίνακα που συμβολίζουν μη συμμετέχουσα διεργασία (κενές θέσεις) αποθηκεύουν δομές `Participant` με πεδίο `pid = -1`
-	4. `mailbox`: Πίνακας που αποθηκεύει δομές τύπου `Message`, δηλαδή τα μηνύματα του συγκεκριμένου διαλόγου. Θέσεις του πίνακα που συμβολίζουν μη διαθέσιμο/ενεργό μήνυμα (κενές θέσεις) αποθηκεύουν δομές `Message` με πεδίο `msg_id = -1` 
-	5. `messages_sent`: Ο αριθμός των συνολικών μηνυμάτων που έχουν σταλθεί στον συγκεκριμένο διάλογο σε όλη την διάρκειά του
-	6. `chat_lock`: Ο σημαφόρος που εξασφαλίζει οποιαδήποτε στιγμή την σωστή επεξεργασία δομής οποιουδήποτε διαλόγου
-	7. `empty`: Ο σημαφόρος που περιμένει κάθε writer thread και σηματοδοτεί ότι το buffer μηνυμάτων (`mailbox`) είναι άδειο και ελεύθερο για νέο μήνυμα
-* `Manager`: Η κύρια δομή που αποτελεί και την δομή της διαμοιραζόμενης μνήμης. Τα πεδία της είναι:
-	1. `active_chats`: Ο αριθμός των ενεργών διαλόγων σε μια δεδομένη χρονική στιγμή
-	2. `chats`: Πίνακας που αποθηκεύει δομές τύπου `Chat`, δηλαδή τις πληροφορίες για κάθε διάλογο. Ένας μη ενεργός διάλογος έχει ID = -1
-	3. `manage_lock`: Ο σημαφόρος που εξασφαλίζει οποιαδήποτε στιγμή την σωστή επεξεργασία δομής/πεδίων του διαχειριστή όλων των διαλόγων
-* `Participant`: Η δομή συμμετέχουσας διεργασίας σε έναν διάλογο και έχει τα εξής πεδία:
-	1. `pid`: Το Process ID της μετέχουσας διεργασίας
-	2. `writer`: Το thread που εξασφαλίζει την συγγραφή νέων μηνυμάτων στον διάλογο (ενεργοποιεί τα `reader` threads όλων των άλλων συμμετεχόντων διεργασιών)
-	3. `reader`: Το thread που εξασφαλίζει την ορθή ανάγνωση νέων μηνυμάτων (ενεργοποιείται μόνο μετά την συγγραφή νέου μηνύματος)
-	4. `wake_up`: Ο σημαφόρος στον οποίο καλούν όλα τα `reader` threads πριν την ανάγνωση νέου μηνύματος και αυξάνεται μόνο από το `writer` thread εφόσον αυτό συνθέσει νέο μήνυμα
-	5. `msg_buf`: Προσωρινό Buffer κειμένου που αποθηκεύει το μήνυμα που επιθυμεί να στείλει η συγκεκριμένη μετέχουσα διεργασία πριν την ουσιαστική επεξεργασία της δομής του διαλόγου (για την σύνταξη του μηνύματος)
- 	6. `name`: Το αναγνωριστικό όνομα της μετέχουσας διεργασίας που επιλέγει ο χρήστης από το `stdin`. Είναι μοναδικό ανά διάλογο, δηλαδή δύο διεργασίες μπορεί να έχουν το ίδιο αναγνωριστικό αν και μόνο αν δεν βρίσκονται στον ίδιο διάλογο
-* `Message`: Η δομή ενός μηνύματος με τα εξής πεδία:
-	1. `msg_id`: Ο αριθμός που χαρακτηρίζει το (μοναδικό) ID κάθε μηνύματος
-	2. `sender_pid`: Το Process ID της διεργασίας της οποίας το `writer` thread συνέθεσε το συγκεκριμένο μήνυμα
-	3. `seen_num`: Ο αριθμός των μετεχόντων διεργασιών που έχουν δει το συγκεκριμένο μήνυμα. Η τελευταία διεργασία που βλέπει το μήνυμα θέτει το πεδίο `msg_id = -1`, δηλαδή το καταστρέφει και απελευθερώνει την θέση του για νέα μελλοντικά μηνύματα
-	4. `text`: Το κείμενο/κύριο σώμα του μηνύματος
- 	5. `sender_name`: Το αναγνωριστικό όνομα (username) της διεργασίας που συνέταξε το συγκεκριμένο μήνυμα
-* `chat_participant_pair`: Η δομή που περιλαμβάνει ζεύγος δεικτών προς την δομή του διαλόγου `chat` και προς την δομή της μετέχουσας διεργασίας `participant`. Το ζεύγος αυτό χρησιμοποιείται ως παράμετρος για τις συναρτήσεις των threads `writer`, `reader` `chat_write` και `chat_read` αντιστοίχως
+The function `enter_chat` finds a slot for the process that attempts to join the referenced chat. If no available slot is found, then the process terminates and an error message is printed on the terminal. If a slot is found, it asks for the new process to give a unique (inside the chat) username and is persistent unless the process gives a unique valid username. Afterwards, the new participating process is presented with a message confirming their entry to the chat as well as being presented with the rest of participating processes (username + PID). The username acts as a rather user-friendly way of acknowledging the origin of messages sent in the chat. The new participating process initializes its 2 threads, `reader` and `writer`, responsible for a robust message exchange between other processes inside the same chat. We then join these 2 threads, so the process does not continue further inside `enter_chat`, unless both threads terminate. The process's threads' implementation follows:
 
-## Περιγραφή διαδικασίας ανταλλαγής μηνυμάτων
+* `reader`: The reader thread attempts to decrement the semaphore that is bound to each participant (`wake_up`). This semaphore ensures IPC implementation that features no busy waiting (as the thread is blocked, instead of constantly checking for new messages, and possibly starvating the writers). If the reader thread is ready to "wake up" it also attempts to decrement the `chat_lock` semaphore, responsible for ensuring Mutual Exclusion regarding the current chat. Afterwards, the reader gets the most recent message index inside the `mailbox` (`Message` struct array). If it reads "TERMINATE", the reader cancels the same process's writer thread and terminates, essentially terminating both threads of the process reading said message. Otherwise, the `seen_by` counter is incremented. If the message is seen by all "active" readers (all participants except for the one who composed the message) then the `chat_lock` and `empty` semaphores are posted and the reader goes back to attempting to decrement the `wake_semaphore`.
 
-* Αρχικά το thread `writer` κάθε μετέχουσας διεργασίας πριν το κατέβασμα των σημαφόρων διαβάζει το κείμενο από το `stdin` και αποθηκεύει το κέιμενο στο προσωρινό `msg_buf` πριν το κατέβασμα των καταλλήλων σημαφόρων. Η συνάρτηση `fgets` θέτει το `writer` thread σε κατάσταση "blocked" μέχρι ο χρήστης να πατήσει `Enter` (Δηλαδή να επιβεβαιώσει το κείμενο του μηνύματος). Εφόσον το `writer` thread είναι σε κατάσταση "blocked" δεν αποτρέπει τυχόν `writer` threads άλλων μετεχόντων διεργασιών από το να συντάξουν και να στείλουν έτοιμα μηνύματα ή `reader` threads από την ανάγνωση νέων μηνυμάτων. 
+* `writer`: The writer thread first calls the `fgets` function, awaiting input from the terminal (which is the message being composed). Since `fgets` is a blocking function, it I/O blocks the writer thread until the user confirms the message. This guarantees the aforementioned non busy waiting IPC implementation. If a message is confirmed on the terminal, the thread attempts to decrement the `chat_lock` semaphore, to ensure IPC Mutual Exclusion. Afterwards it attempts to decrement the `empty` semaphore, making sure that the writer thread attempts to compose a new message only when the mailbox is empty. After appropriately updating the respective fields, it wakes up all reader threads (except the reader thread bound to the same process as said writer thread). Furthermore, it reads the message written earlier, checking if the chat is to terminate. If message written is "TERMINATE" then it also cancels the respective reader thread (and allows other processes' reader threads to handle the message appropriately.
 
-	Όταν ο χρήστης επιβεβαιώσει το μήνυμα που θέλει να στείλει σε όλες τις υπόλοιπες μετέχοντες διεργασίας, το `writer` thread κατεβάζει τους σημαφόρους `empty` και `chat_lock`, αναμένοντας:
-	1. Όλα τα `reader` threads έχουν διαβάσει το προηγούμενο μήνυμα
-	και
-	2. Να έχει αποκλειστικό έλεγχο στην δομή του διαλόγου
-αντίστοιχα.
-	Στην συνέχεια, το `writer` thread βρίσκει κενή θέση στο `mailbox` (δηλαδή δομή με `msg_id` = -1) και μετατρέπει τα πεδία της δομής του μηνύματος `Message` καταλλήλως. Έπειτα, ανεβάζει τον σημαφόρο `wake_up` κάθε μετέχουσας διεργασίας, εκτός της ίδιας ώστε να βγουν τα `reader` threads από την κατάσταση "blocked" και να διαβάσουν το νέο μήνυμα. Ελέγχει αν το μήμυμα που δημιουργήθηκε έχει ως κέιμενο "**TERMINATE**" όπου στην περίπτωση αυτή ακυρώνεται η εκτέλεση του `reader` thread της ίδιας διεργασίας και σταματάει το `writer` thread της διεργασίας αυτής, επιστρέφοντας NULL. Στην συνέχεια η διεργασία συνεχίζει στην αποχώρισή της.
-* Το `reader` thread προσπαθεί να κατεβάσει τον σημαφόρο `wake_up` της διεργασίας και στην συνέχεια τον σημαφόρο αποκλειστικής επεξεργασίας του διαλόγου `chat_lock`. Στην συνέχεια, διαπιστώνει ποιο μήνυμα να διαβάσει και ελέγχει αν το κείμενό του είναι `TERMINATE`, όπου και σε αυτήν την περίπτωση σταματάει την εκτέλεση του `writer` thread της ίδιας διεργασίας και το `reader` thread απελευθερώνει τον σημαφόρο `chat_lock` και τερματίζει. Στην συνέχεια, η διεργασία συνεχίζει στην αποχώρισή της από τον διάλογο. Σε αντίθετη περίπτωση απλώς ενημερώνει τον αριθμό των διεργασιών που έχουν διαβάσει αυτό το μήνυμα, το εκτυπώνει στο `stdout` και ελέγχει αν ειναι η τελευταία διεργασία που διαβάζει το μήνυμα αυτό. Στην περίπτωση αυτή, ανεβάζει τον σημαφόρο `empty` ώστε να μπορέσουν τα `writer` threads να στείλουν το μήνυμα που επιθυμούν.
+If "TERMINATE" message is sent inside the chat, all processes enter the `clean_chat` function, which appropriately handles semaphore removal. Moreover, the last process the exit the chat invalidates the chat's slot, marking it free for future use and exits. The last exiting process, which cleans up after the last standing chat, also detaches the shared memory segment and an informative message is displayed on the terminal.
 
-Αν μια μετέχουσα διεργασία συντάξει μήνυμα με κείμενο "`TERMINATE`", τότε καλεί την συνάρτηση `pthread_cancel` στο `reader` thread της, έτσι ώστε να διακόψει την λειτουργία του το συντομότερο δυνατό, ανεβάζει τον σημαφόρο αποκλειστικής χρήσης της δομής του διαλόγου (`chat_lock`) και σταματάει το ίδιο το `writer_thread`. Αν η ίδια διεργασία διαβάσει τέτοιο μήνυμα τότε ακυρώνει την εκτέλεση του `writer` thread της, ανεβάζει πάλι τον σημαφόρο `chat_lock` και σταματάει την εκτέλεση και του `reader` thread επιστρέφοντας `NULL`. Έτσι εξασφαλίζουμε πως είτε η ίδια διεργασία επυθυμεί να διακόψει την διεργασία ή όχι τότε αποχωρεί πρώτα αυτή, αναμένοντας τις υπόλοιπες μετέχουσες διεργασίες να προβούν στην ανάγνωση του μηνύματος "`TERMINATE`" και στην αποχώρισή τους. Στο τέλος της συνάρτησης `enter_chat` με την κλήση της συνάρτησης `pthread_join(reader)` περιμένουμε να τερματίσει το `reader` thread της συγκεκριμένης διεργασίας (είτε ακυρωθεί από το `writer` thread της ή τερματίσει από μόνο του). Στην συνέχεια, στο αρχείο participant.c καλούμε την συνάρτηση `clean_chat`, καθώς δεχόμαστε πως με την έξοδο από την συνάρτηση `enter_chat`, η διεργασία εκκινεί την διαδικασία αποχώρισής της από τον διάλογο. Όταν μια διεργασία αποχωρεί από τον διάλογο (με την έξοδο από την συνάρτηση `enter_chat` και την κλήση της συνάρτησης `clean_chat`), καταστρέφει τον σημαφόρο της `wake_up` και ελέγχει αν χρειάζεται ολοκληρωτική καταστορφή του διαλόγου εφόσον είναι η τελευταία που αποχωρεί. Στην περίπτωση αυτή, καταστρέφονται και οι υπόλοιποι σημαφόροι του διαλόγου και διαπιστώνεται αν είναι η τελευταία διεργασία που καταστρέφεται. Αν είναι, τότε καταστρέφεται και η κοινόχρηστη μνήμη. Αυτό πετυγχάνεται με την επιστροφή της τιμής τύπου `bool last_chat` (δηλαδή την τιμή επιστροφής της συνάρτησης `clean_chat`). Αν `last_chat = true`, τότε ο διάλογος στον οποίο αποχωρούν με την σειρά τους όλες οι μετέχουσες διεργασίες είναι ο τελευταίος και άρα πρέπει να καταστραφεί και η κοινόχρηστη μνήμη. Επίσης, ελέγχουμε πως αν με την αποχώριση της συγκεκριμένης διεργασίας δεν υπάρχουν άλλες διεργασίες που περιμένουν να αποχωρίσουν, δηλαδή αν η διεργασία που αποχωρεί είναι η τελευταία, τότε καταστρέφει την δομή του διαλόγου και τους σημαφόρους της (`σε κώδικα πετυγχάνεται με τον έλεγχο αν --(chat -> participant_num) == 0).
+## Structs used:
+
+* `Chat`: Defines the struct of a chat with the following fields:
+	1. `chat_id`: ID number of chat.
+	2. `participant_num`: The number of processes currently participating inside the chat.
+	3. `participnts`: Array that stores structs of type `Participant`. Empty participant slots are represented by `Participant` structs with field value `pid = -1` (Invalid participant).
+	4. `mailbox`: Array that stores structs of type `Message`, which are the chat's messages. Empty message slots are represented by `Message` structs with field value `msg_id = -1` .
+	5. `messages_sent`: The total number of messages sent during the chat's lifetime.
+	6. `chat_lock`: Semaphore which guarantees mutual exclusion on structs of type `Chat`.
+	7. `empty`: Semaphore which represents that the (`mailbox`) is empty and can store new messages.
+* `Manager`: The main struct (Shared Memory Segment's struct) with the following fields:
+	1. `active_chats`: The number of currently active (valid) chats.
+	2. `chats`: Array that stores structs of type `Chat`, details about each chat. A non-active chat is represented with field value `chat_id = -1` (Invalid chat).
+	3. `manage_lock`: Semaphore which guarantees mutual exclusion on the the shared memory segment's struct (Chat Manager).
+* `Participant`: Defines a participating process with the following fields: 
+	1. `pid`: Participating process's Process ID.
+	2. `writer`: Thread responsible for composing new messages inside the chat ("enables" the `reader` threads of all other participating processes).
+	3. `reader`: Thread responsible for reading and displaying messages found inside the "mailbox".
+	4. `wake_up`: Semaphore, given to each process, the `reader` thread of which tries decrementing before reading any new messages and is posted only by other processes' writer threads.
+	5. `msg_buf`: Temporary string Buffer which stores the current process's composed message, before actually updating the mailbox and relevant fields.
+ 	6. `name`: A form of identification given uniquely to each process on chat entry from `stdin`. Only 2 processes not participating inside the same chat can share the same name.
+* `Message`: Defines a message with the following fields:
+	1. `msg_id`: Number that uniquely identifies each message inside a chat.
+	2. `sender_pid`: Process ID of the respective process, the writer thread of which composed said message.
+	3. `seen_num`: Number of participating processes that have seen said message. Last process to see the message, updates its field value `msg_id = -1`, which invalidates it and frees the message slot for future messages.
+	4. `text`: Main text of composed message.
+ 	5. `sender_name`: Name of the process responsible for composing the message.
+* `chat_participant_pair`: Defines a pair of pointers pointing to struct types `chat` and `participant`. This pair struct is used to correctly parse required details/fields for threads `writer` and`reader`.
