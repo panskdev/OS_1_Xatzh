@@ -8,7 +8,7 @@ To compile, use `make compile`.
 To clean working directory use `make clean` (will remove the executable, as well as any object files)
 Program execution is explained below:
 
-To execute the program, after compiling, use: `./chat <chat_number>`, in the repo's root directory. "chat_number" specifies the chat ID the new incoming process will attempt to enter or create. In case it's the first process to run said program, it initializes the shared memory and the required semaphores appropriately.
+To execute the program, after compiling, use: `./chat <chat_number>`, in the repo's root directory. "chat_number" specifies the chat ID which the new incoming process will attempt to enter or create. In case it's the first process to run said program, it initializes the shared memory and the required semaphores appropriately.
 
 ## How the software works under the hood
 
