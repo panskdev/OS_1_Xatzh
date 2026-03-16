@@ -8,7 +8,7 @@ on:
         docker_image:
           description: 'The Docker image to scan'
           required: true
-          default: 'ghcr.io/panskdev/os_1_xatzh:latest'
+          default: 'ghcr.io/panskdev/OS_1_Xatzh:latest'
 
 # env:
 #   REGISTRY: ghcr.io
