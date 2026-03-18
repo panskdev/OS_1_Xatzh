@@ -2,7 +2,5 @@ FROM ubuntu:20.04
 
 RUN apt-get update && apt-get install -y build-essential
 WORKDIR /chat_app
-COPY . /chat_app
-
-RUN make compile
+RUN git clone https://github.com/panskdev/OS_1_Xatzh.git && cd OS_1_Xatzh && make compile
 RUN echo "Usage: ./chat <chat_id>"
